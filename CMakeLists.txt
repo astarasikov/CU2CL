@@ -52,11 +52,12 @@ include(AddLLVM)
 include(HandleLLVMOptions)
 #if building from combined LLVM/Clang SVN source tree, use /share/llvm/cmkae/LLVMConfig.cmake
 #otherwise use LLVM.cmake
-include("${LLVM_BUILD_DIR}/share/llvm/cmake/LLVMConfig.cmake")
+include("${LLVM_BUILD_DIR}/lib/cmake/llvm/LLVMConfig.cmake")
 
-set(CMAKE_CXX_FLAGS "-std=c++11 ${CMAKE_CXX_FLAGS}")
+set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 include_directories("${LLVM_BUILD_DIR}/include" "${LLVM_SRC_DIR}/include")
+include_directories("${LLVM_BUILD_DIR}/tools/clang/include" "${LLVM_SRC_DIR}/tools/clang/include")
 include_directories("${CLANG_BUILD_DIR}/include" "${CLANG_SRC_DIR}/include")
 link_directories("${LLVM_BUILD_DIR}/lib")
 link_directories("${CLANG_BUILD_DIR}/lib")
@@ -68,19 +69,28 @@ llvm_process_sources(srcs cu2cl_libTooling.cpp)
 #Paul - added clangTooling as a dependency during the libTooling conversion
 set(LLVM_USED_LIBS
     clangFrontend
-    clangRewriteCore
+    clangRewrite
     clangAST
     clangLex
     clangBasic
     clangTooling
+	clangToolingCore
+	clangToolingInclusions
     clangDriver
     clangSerialization
     clangParse
     clangSema
     clangAnalysis
     clangEdit
+	clangFormat
     clang
+	LLVMSupport
     LLVMCore
+	LLVMMCParser
+	LLVMBitReader
+	LLVMOption
+	LLVMInstrumentation
+	LLVMObjectYAML
 )
 
 

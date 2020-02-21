@@ -407,13 +407,18 @@ namespace {
     std::string CU2CLClean;
     
     std::vector<std::string> GlobalHDecls, GlobalCFuncs, GlobalCLFuncs, UtilKernels;
+
+    void deduplicate(std::vector<Replacement> &vec, std::vector<Range> &vec_range) {
+        //TODO
+    }
+
     //We also borrow the loose method of dealing with temporary output files from
     // CompilerInstance::clearOutputFiles
     void clearOutputFile(OutputFile *OF, FileManager *FM) {
 	if(!OF->TempFilename.empty()) {
 	    SmallString<128> NewOutFile(OF->Filename);
 	    FM->FixupRelativePath(NewOutFile);
-	    if (llvm::error_code ec = llvm::sys::fs::rename(OF->TempFilename, NewOutFile.str()))
+	    if (auto ec = llvm::sys::fs::rename(OF->TempFilename, NewOutFile.str()))
 		llvm::errs() << "Unable to move CU2CL temporary output [" << OF->TempFilename << "] to [" << OF->Filename << "]!\n\t Diag Msg: " << ec.message() << "\n";
 	    llvm::sys::fs::remove(OF->TempFilename);
 	} else {
@@ -607,7 +612,7 @@ void coalesceReplacements(std::vector<Replacement> &replace) {
         if (expLoc.isValid()){
 	    //Tack the source line information onto the diagnostic
             //inlineStr << SM->getBufferName(expLoc) << ":" << SM->getExpansionLineNumber(expLoc) << ":" << SM->getExpansionColumnNumber(expLoc) << ": ";
-            errStr << SM->getBufferName(expLoc) << ":" << SM->getExpansionLineNumber(expLoc) << ":" << SM->getExpansionColumnNumber(expLoc) << ": ";
+            errStr << SM->getBufferName(expLoc).str() << ":" << SM->getExpansionLineNumber(expLoc) << ":" << SM->getExpansionColumnNumber(expLoc) << ": ";
             //grab the start of column write location
             writeLoc = SM->translateLineCol(SM->getFileID(expLoc), SM->getExpansionLineNumber(expLoc), 1);
         }
@@ -3429,11 +3434,11 @@ public:
         LO = &CI->getLangOpts();
         PP = &CI->getPreprocessor();
 
-	PP->Retain();
-	LO->Retain();
+	//PP->Retain();
+	//LO->Retain();
 	ST = new SourceTuple(SM, PP, LO, &Context);
 
-        PP->addPPCallbacks(new RewriteIncludesCallback(this));
+        PP->addPPCallbacks(std::make_unique<RewriteIncludesCallback>(this));
 
         HostRewrite.setSourceMgr(*SM, *LO);
         KernelRewrite.setSourceMgr(*SM, *LO);
@@ -3506,11 +3511,12 @@ public:
                     size_t dotPos = FileName.rfind('.');
 		    FileName = kernelNameFilter(FileName) + "-cl" + FileName.substr(dotPos);
 			//PAUL: These calls had to be replaced so the CompilerInstance wouldn't destroy the raw_ostream after translation finished
-		    std::string error, HostOutputPathName, HostTempPathName, KernOutputPathName, KernTempPathName;
-		    llvm::raw_ostream *hostOS = CI->createOutputFile(StringRef(CI->getFrontendOpts().OutputFile), error, false, true, FileName, "h", true, true, &HostOutputPathName, &HostTempPathName);
-		    llvm::raw_ostream *kernelOS = CI->createOutputFile(StringRef(CI->getFrontendOpts().OutputFile), error, false, true, FileName, "cl", true, true, &KernOutputPathName, &KernTempPathName);
-			OutputFile *HostOF = new OutputFile(HostOutputPathName, HostTempPathName, hostOS);
-			OutputFile *KernOF = new OutputFile(KernOutputPathName, KernTempPathName, kernelOS);
+		    std::string HostOutputPathName, HostTempPathName, KernOutputPathName, KernTempPathName;
+		    std::error_code error;
+		    auto hostOS = CI->createOutputFile(StringRef(CI->getFrontendOpts().OutputFile), error, false, true, FileName, "h", true, true, &HostOutputPathName, &HostTempPathName);
+		    auto kernelOS = CI->createOutputFile(StringRef(CI->getFrontendOpts().OutputFile), error, false, true, FileName, "cl", true, true, &KernOutputPathName, &KernTempPathName);
+			OutputFile *HostOF = new OutputFile(HostOutputPathName, HostTempPathName, hostOS.get());
+			OutputFile *KernOF = new OutputFile(KernOutputPathName, KernTempPathName, kernelOS.get());
                     if (hostOS && kernelOS) {
                         OutFiles[origFilename] = HostOF;
                         KernelOutFiles[origFilename] = KernOF;
@@ -3868,21 +3874,20 @@ class RewriteCUDAAction : public SyntaxOnlyAction {
 protected:
 
     //The factory method needeed to initialize the plugin as an ASTconsumer
-    ASTConsumer *CreateASTConsumer(CompilerInstance &CI, llvm::StringRef InFile) {
+    std::unique_ptr<ASTConsumer> CreateASTConsumer(CompilerInstance &CI, llvm::StringRef InFile) {
         
         std::string filename = InFile.str();
 	std::string origFilename = filename;
         size_t dotPos = filename.rfind('.');
 	filename = kernelNameFilter(filename) + "-cl" + filename.substr(dotPos);
-		    std::string error, HostOutputPathName, HostTempPathName, KernOutputPathName, KernTempPathName;
-		    llvm::raw_ostream *hostOS = CI.createOutputFile(StringRef(CI.getFrontendOpts().OutputFile), error, false, true, filename, "cpp", true, true, &HostOutputPathName, &HostTempPathName);
-		    llvm::raw_ostream *kernelOS = CI.createOutputFile(StringRef(CI.getFrontendOpts().OutputFile), error, false, true, filename, "cl", true, true, &KernOutputPathName, &KernTempPathName);
-			OutputFile *HostOF = new OutputFile(HostOutputPathName, HostTempPathName, hostOS);
-			OutputFile *KernOF = new OutputFile(KernOutputPathName, KernTempPathName, kernelOS);
+		    std::string HostOutputPathName, HostTempPathName, KernOutputPathName, KernTempPathName;
+		    std::error_code error;
+		    std::unique_ptr<llvm::raw_ostream> hostOS = CI.createOutputFile(StringRef(CI.getFrontendOpts().OutputFile), error, false, true, filename, "cpp", true, true, &HostOutputPathName, &HostTempPathName);
+            std::unique_ptr<llvm::raw_ostream> kernelOS = CI.createOutputFile(StringRef(CI.getFrontendOpts().OutputFile), error, false, true, filename, "cl", true, true, &KernOutputPathName, &KernTempPathName);
+			OutputFile *HostOF = new OutputFile(HostOutputPathName, HostTempPathName, hostOS.get());
+			OutputFile *KernOF = new OutputFile(KernOutputPathName, KernTempPathName, kernelOS.get());
                     if (hostOS && kernelOS) 
-            return new RewriteCUDA(&CI, origFilename, HostOF, KernOF);
-        //TODO cleanup files?	
-        return NULL;
+            return std::make_unique<RewriteCUDA>(&CI, origFilename, HostOF, KernOF);
     }
 
 
@@ -3922,7 +3927,7 @@ public:
 	    AddV.push_back(item);
 	}
     }
-    virtual CommandLineArguments Adjust(const CommandLineArguments &Args) LLVM_OVERRIDE {
+    virtual CommandLineArguments Adjust(const CommandLineArguments &Args)  {
 	CommandLineArguments Ret(Args);
 	CommandLineArguments::iterator it = Ret.end();
 
@@ -4072,7 +4077,8 @@ bool isAncestor(Stmt * ancestor, Stmt * child) {
 int main(int argc, const char ** argv) {
 	
 	//Before we do anything, parse off common arguments, a la MPI
-	CommonOptionsParser options(argc, argv);
+    llvm::cl::OptionCategory Category("cat_cu2cl");
+	CommonOptionsParser options(argc, argv, Category);
 
 	//create a ClangTool instance
 	RefactoringTool cu2cl(options.getCompilations(), options.getSourcePathList());
@@ -4095,7 +4101,8 @@ int main(int argc, const char ** argv) {
 	    //logic to spawn a "gcc -v foo.c" proc and parse search path(s)
 	    embeddedArgs += parseGCCPaths();
 	} else llvm::errs() << "GCC include directory import is disabled\n";
-	cu2cl.appendArgumentsAdjuster(new AppendAdjuster(embeddedArgs.c_str()));
+	AppendAdjuster adjuster(embeddedArgs.c_str());
+	cu2cl.appendArgumentsAdjuster(adjuster);
 
 	//Boilerplate generation has to start before the tool runs, so the tool
 	// instances can contribute their local init calls to it
@@ -4118,7 +4125,7 @@ int main(int argc, const char ** argv) {
 	CU2CLClean += "}\n";
 
 	//run the tool (for now, just use the PluginASTAction from original CU2CL
-	int result = cu2cl.run(newFrontendActionFactory<RewriteCUDAAction>());
+	int result = cu2cl.run(newFrontendActionFactory<RewriteCUDAAction>().get());
 
 	//After the toos runs, don't forget to re-initialize the comment buffer, in case we need to emit any diagnostics
 	head = (struct commentBufferNode *)malloc(sizeof(struct commentBufferNode));
@@ -4167,7 +4174,7 @@ int main(int argc, const char ** argv) {
 	//Construct a SourceManager for the rewriters the replacements will be applied to
 	// We use a stripped-down version of the way clang-apply-replacements sets up their SourceManager
 	IntrusiveRefCntPtr<DiagnosticOptions> DiagOpts(new DiagnosticOptions());
-	DiagnosticsEngine Diagnostics(IntrusiveRefCntPtr<DiagnosticIDs>(new DiagnosticIDs()), DiagOpts.getPtr());
+	DiagnosticsEngine Diagnostics(IntrusiveRefCntPtr<DiagnosticIDs>(new DiagnosticIDs()), DiagOpts.get());
 	FileManager Files((FileSystemOptions()));
 	SourceManager RewriteSM(Diagnostics, Files);
 	//Set up our two rewriters
@@ -4175,7 +4182,7 @@ int main(int argc, const char ** argv) {
 	Rewriter GlobalHostRewrite(RewriteSM, LOpts);
 	Rewriter GlobalKernRewrite(RewriteSM, LOpts);
 	//Generate cu2cl_util.c/h
-	std::string error;
+	std::error_code error;
 	raw_ostream * cu2cl_util = new llvm::raw_fd_ostream("cu2cl_util.c", error);
 	raw_ostream * cu2cl_header = new llvm::raw_fd_ostream("cu2cl_util.h", error);
 	raw_ostream * cu2cl_kernel = new llvm::raw_fd_ostream("cu2cl_util.cl", error);
@@ -4292,11 +4299,11 @@ int main(int argc, const char ** argv) {
 
 			//For each, iterate upwards to the nearest Stmt ancestor
 			//TODO This type changes to DynTypedNodeList in a future version of Clang
-			ASTContext::ParentVector parents = AST->getParents(*(dyn_cast<Stmt>(*ref)));
+			auto parents = AST->getParents(*(dyn_cast<Stmt>(*ref)));
 			//The above should give us *all* the ancestors, look backwards until the next parent is a Stmt but not an Expr
-			ASTContext::ParentVector::iterator pitr;
+			//ASTContext::ParentVector::iterator pitr;
 			Expr * ancestor;
-			for (pitr = parents.begin(); pitr != parents.end(); parents = AST->getParents(*pitr), pitr = parents.begin()) {
+			for (auto pitr = parents.begin(); pitr != parents.end(); parents = AST->getParents(*pitr), pitr = parents.begin()) {
 				const Stmt * stmt = ((pitr)->get<Stmt>());
 				if (stmt != NULL) {
 					const Expr * expr = dyn_cast<Expr>(stmt) ;
@@ -4368,11 +4375,11 @@ int main(int argc, const char ** argv) {
 		//HORIZONTAL AND UPWARDS PROPAGATION
 		//IFF the Decl is a ParmVarDecl, we need to check all calls of the function it is a parameter to
 		if (ParmVarDecl * parm =dyn_cast<ParmVarDecl>(decl)) {
-			ASTContext::ParentVector parents = AST->getParents(*(parm));
+			auto parents = AST->getParents(*(parm));
 			//The above should give us *all* the ancestors, look backwards until the next parent is a Stmt but not an Expr
-			ASTContext::ParentVector::iterator pitr;
+			//ASTContext::ParentVector::iterator pitr;
 			FunctionDecl * func;
-			for (pitr = parents.begin(); pitr != parents.end(); parents = AST->getParents(*pitr), pitr = parents.begin()) {
+			for (auto pitr = parents.begin(); pitr != parents.end(); parents = AST->getParents(*pitr), pitr = parents.begin()) {
 				const Decl * decl = ((pitr)->get<Decl>());
 				if (decl != NULL) {
 					const FunctionDecl * ancestor = dyn_cast<FunctionDecl>(decl) ;
@@ -4418,12 +4425,12 @@ int main(int argc, const char ** argv) {
 						for (std::vector<DeclRefExpr *>::iterator funcRef = funcRefs.begin(); funcRef != funcRefs.end(); funcRef++) {
 						 //Loop over all references to that function declaration
 							//ASTContext::ParentVector fParents = AST->getParents(*(dyn_cast<Stmt>(*funcRef)));
-							ASTContext::ParentVector fParents = (std::get<3>(*((*fitr).second)))->getParents(*(dyn_cast<Stmt>(*funcRef)));
+							auto fParents = (std::get<3>(*((*fitr).second)))->getParents(*(dyn_cast<Stmt>(*funcRef)));
 							//The above should give us *all* the ancestors, look backwards until the next parent is a Stmt but not an Expr
-							ASTContext::ParentVector::iterator fPitr;
+							//ASTContext::ParentVector::iterator fPitr;
 							Stmt * fStmt;
 							Expr *  ancestor;
-							for (fPitr = fParents.begin(); fPitr != fParents.end(); fParents = (std::get<3>(*((*fitr).second)))->getParents(*fPitr), fPitr = fParents.begin()) {
+							for (auto fPitr = fParents.begin(); fPitr != fParents.end(); fParents = (std::get<3>(*((*fitr).second)))->getParents(*fPitr), fPitr = fParents.begin()) {
 								fStmt = (Stmt*) ((fPitr)->get<Stmt>());
 								if (fStmt != NULL) {
 									const Expr * fExpr = dyn_cast<Expr>(fStmt) ;
@@ -4524,13 +4531,22 @@ int main(int argc, const char ** argv) {
 	coalesceReplacements(GlobalHostReplace);
 	deduplicate(GlobalKernReplace, conflicts);
 	coalesceReplacements(GlobalKernReplace);
-	
+
+	//TODO: get rid of vectors and implement deduplicate
+    Replacements GlobalHostReplacements;
+    for (auto &r : GlobalHostReplace) {
+        GlobalHostReplacements.add(r);
+    }
+    Replacements GlobalKernReplacements;
+    for (auto &r : GlobalKernReplace) {
+        GlobalKernReplacements.add(r);
+    }
 
 	//Apply the global set of replacements to each of them
 	//debugPrintReplacements(GlobalHostReplace);
-	applyAllReplacements(GlobalHostReplace, GlobalHostRewrite);
+	applyAllReplacements(GlobalHostReplacements, GlobalHostRewrite);
 	//debugPrintReplacements(GlobalKernReplace);
-	applyAllReplacements(GlobalKernReplace, GlobalKernRewrite);
+	applyAllReplacements(GlobalKernReplacements, GlobalKernRewrite);
 
 
 	//Flush all rewritten #included host files

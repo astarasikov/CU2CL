@@ -4101,12 +4101,15 @@ int main(int argc, const char ** argv) {
 	    //logic to spawn a "gcc -v foo.c" proc and parse search path(s)
 	    embeddedArgs += parseGCCPaths();
 	} else llvm::errs() << "GCC include directory import is disabled\n";
-#if 0 //clang < 3.8
-    AppendAdjuster adjuster(embeddedArgs.c_str());
-#else
-    ArgumentsAdjuster adjuster = clang::tooling::getInsertArgumentAdjuster(embeddedArgs.c_str());
-#endif
-    cu2cl.appendArgumentsAdjuster(adjuster);
+
+    {
+        std::stringstream ss(embeddedArgs);
+        std::string item;
+        //Tokenize based on a space character delimiter
+        while(std::getline(ss, item, ' ')) {
+            cu2cl.appendArgumentsAdjuster(clang::tooling::getInsertArgumentAdjuster(item.c_str()));
+        }
+    }
 
 	//Boilerplate generation has to start before the tool runs, so the tool
 	// instances can contribute their local init calls to it

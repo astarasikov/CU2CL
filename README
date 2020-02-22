@@ -81,3 +81,5 @@ License
 Please refer to the LGPLv2.1 LICENSE file included with this tarball.
 
 If you have any questions or need for correspondence regarding this license or wish to negotiate other licensing terms, please contact Virginia Tech Intellectual Property at vtiplicensing@vtip.org with a carbon copy (CC) to cu2cl-info@cs.vt.edu 
+
+./cu2cl-tool --extra-arg=--cuda-device-only  ../../cu2cl_tests/foo.cu

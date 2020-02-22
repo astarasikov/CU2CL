@@ -3515,8 +3515,8 @@ public:
 		    std::error_code error;
 		    auto hostOS = CI->createOutputFile(StringRef(CI->getFrontendOpts().OutputFile), error, false, true, FileName, "h", true, true, &HostOutputPathName, &HostTempPathName);
 		    auto kernelOS = CI->createOutputFile(StringRef(CI->getFrontendOpts().OutputFile), error, false, true, FileName, "cl", true, true, &KernOutputPathName, &KernTempPathName);
-			OutputFile *HostOF = new OutputFile(HostOutputPathName, HostTempPathName, hostOS.get());
-			OutputFile *KernOF = new OutputFile(KernOutputPathName, KernTempPathName, kernelOS.get());
+			OutputFile *HostOF = new OutputFile(HostOutputPathName, HostTempPathName, hostOS.release());
+			OutputFile *KernOF = new OutputFile(KernOutputPathName, KernTempPathName, kernelOS.release());
                     if (hostOS && kernelOS) {
                         OutFiles[origFilename] = HostOF;
                         KernelOutFiles[origFilename] = KernOF;
@@ -3884,9 +3884,8 @@ protected:
 		    std::error_code error;
 		    std::unique_ptr<llvm::raw_ostream> hostOS = CI.createOutputFile(StringRef(CI.getFrontendOpts().OutputFile), error, false, true, filename, "cpp", true, true, &HostOutputPathName, &HostTempPathName);
             std::unique_ptr<llvm::raw_ostream> kernelOS = CI.createOutputFile(StringRef(CI.getFrontendOpts().OutputFile), error, false, true, filename, "cl", true, true, &KernOutputPathName, &KernTempPathName);
-			OutputFile *HostOF = new OutputFile(HostOutputPathName, HostTempPathName, hostOS.get());
-			OutputFile *KernOF = new OutputFile(KernOutputPathName, KernTempPathName, kernelOS.get());
-                    if (hostOS && kernelOS) 
+			OutputFile *HostOF = new OutputFile(HostOutputPathName, HostTempPathName, hostOS.release());
+			OutputFile *KernOF = new OutputFile(KernOutputPathName, KernTempPathName, kernelOS.release());
             return std::make_unique<RewriteCUDA>(&CI, origFilename, HostOF, KernOF);
     }
 
@@ -4132,7 +4131,7 @@ int main(int argc, const char ** argv) {
 	CU2CLClean += "}\n";
 
 	//run the tool (for now, just use the PluginASTAction from original CU2CL
-	int result = cu2cl.run(newFrontendActionFactory<RewriteCUDAAction>().get());
+	int result = cu2cl.run(newFrontendActionFactory<RewriteCUDAAction>().release());
 
 	//After the toos runs, don't forget to re-initialize the comment buffer, in case we need to emit any diagnostics
 	head = (struct commentBufferNode *)malloc(sizeof(struct commentBufferNode));
